@@ -1,2 +1,10 @@
+.DS_Store
 data/raw/
+data/processed/
+*.pkl
+*.pt
+__pycache__/
+.env
+*.pyc
 .ipynb_checkpoints/
+node_modules/
