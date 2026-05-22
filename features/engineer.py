@@ -24,6 +24,10 @@ Key findings from EDA:
 import pandas as pd
 import numpy as np
 import os
+import boto3
+from io import StringIO
+
+BUCKET_NAME = "fraud-detection-gnn"
 
 RAW_PATH = "data/raw"
 PROCESSED_PATH = "data/processed"
@@ -70,21 +74,23 @@ def handle_missing(df):
 # 5. Engineer new features
 def engineer_features(df):
     print("Engineering features:")
-    # log transform
-    df["log_amt"] = np.log1p(df["TransactionAmt"])
+    new_cols = {}
+    # log transform amount
+    new_cols["log_amt"] = np.log1p(df["TransactionAmt"])
     # extract hour and day from TransactionDT (seconds since reference)
-    df["hour"] = (df["TransactionDT"] / 3600 % 24).astype(int)
-    df["day"] = (df["TransactionDT"] / (3600 * 24) % 7).astype(int)
+    new_cols["hour"] = (df["TransactionDT"] / 3600 % 24).astype(int)
+    new_cols["day"] = (df["TransactionDT"] / (3600 * 24) % 7).astype(int)
     # unique card identifier (card1 and card2)
-    df["card_id"] = df["card1"].astype(str) + "_" + df["card2"].astype(str)
-    # save string version before encoding (for graph construction)
-    df["card_id_str"] = df["card_id"]
-    # transaction count per card 
-    card_counts = df.groupby("card_id")["TransactionID"].transform("count")
-    df["card_tx_count"] = card_counts
-    # mean fraud rate per card (how often this card is associated with fraud)
-    card_fraud_rate = df.groupby("card_id")["isFraud"].transform("mean")
-    df["card_fraud_rate"] = card_fraud_rate
+    card_id = df["card1"].astype(str) + "_" + df["card2"].astype(str)
+    new_cols["card_id"] = card_id
+    new_cols["card_id_str"] = card_id
+    # concat all new columns at once to avoid fragmentation
+    df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
+    df = df.copy()
+    # transaction count per card
+    df["card_tx_count"] = df.groupby("card_id")["TransactionID"].transform("count")
+    # mean fraud rate per card
+    df["card_fraud_rate"] = df.groupby("card_id")["isFraud"].transform("mean")
 
     print(f"  Features after engineering: {df.shape[1]}")
     return df
@@ -101,13 +107,16 @@ def encode_categoricals(df):
     return df
 
 # 7. Save processed data
-def save_data(df):
-    os.makedirs(PROCESSED_PATH, exist_ok=True)
-    output_path = f"{PROCESSED_PATH}/features.csv"
-    df.to_csv(output_path, index=False)
-    print(f"\nSaved to {output_path}")
-    print(f"Final shape: {df.shape}")
-    print(f"Fraud rate: {df['isFraud'].mean():.3%}")
+def save_to_s3(df, s3_key="processed/features.csv"):
+    print(f"Uploading to s3://{BUCKET_NAME}/{s3_key}...")
+    s3 = boto3.client("s3")
+    csv_buffer = StringIO()
+    df.to_csv(csv_buffer, index=False)
+    s3.put_object(
+        Bucket=BUCKET_NAME,
+        Key=s3_key,
+        Body=csv_buffer.getvalue())
+    print(f"  Saved to s3://{BUCKET_NAME}/{s3_key}")
 
 
 if __name__ == "__main__":
@@ -117,5 +126,5 @@ if __name__ == "__main__":
     df = handle_missing(df)
     df = engineer_features(df)
     df = encode_categoricals(df)
-    save_data(df)
+    save_to_s3(df)
     print("\nDone!")
