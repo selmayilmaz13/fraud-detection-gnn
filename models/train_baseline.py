@@ -36,15 +36,17 @@ def load_features():
 # 2. Train/test split
 def split_data(df):
     print("Splitting data:")
-    exclude_cols = ["TransactionID", "isFraud", "card_id_str","TransactionDT", "card1", "card2"]
+    exclude_cols = [
+        "TransactionID", "isFraud", "card_id_str",
+        "device_str", "email_str", "TransactionDT",
+        "card1", "card2"]
     feature_cols = [c for c in df.columns if c not in exclude_cols]
     X = df[feature_cols]
     y = df["isFraud"]
-
-    # time-based split — first 80% train, last 20% test
     split_idx = int(len(df) * 0.8)
     X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
     y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+
     print(f"  Train: {X_train.shape[0]} rows, {y_train.sum()} fraud")
     print(f"  Test:  {X_test.shape[0]} rows, {y_test.sum()} fraud")
     return X_train, X_test, y_train, y_test
@@ -91,11 +93,11 @@ def evaluate_model(model, X_test, y_test):
 # 5. Save model to S3
 def save_model_to_s3(model):
     print("Saving model to S3:")
-    joblib.dump(model, "/tmp/xgboost_baseline.pkl")
+    # save in native XGBoost format for SHAP compatibility
+    model.save_model("/tmp/xgboost_baseline.json")
     s3 = boto3.client("s3")
-    s3.upload_file("/tmp/xgboost_baseline.pkl", BUCKET_NAME, "models/xgboost_baseline.pkl")
-    print(f"  Saved to s3://{BUCKET_NAME}/models/xgboost_baseline.pkl")
-
+    s3.upload_file("/tmp/xgboost_baseline.json", BUCKET_NAME, "models/xgboost_baseline.json")
+    print(f"  Saved to s3://{BUCKET_NAME}/models/xgboost_baseline.json")
 
 if __name__ == "__main__":
     df = load_features()
