@@ -77,21 +77,23 @@ def engineer_features(df):
     new_cols = {}
     # log transform amount
     new_cols["log_amt"] = np.log1p(df["TransactionAmt"])
-    # extract hour and day from TransactionDT (seconds since reference)
+    # extract hour and day from TransactionDT
     new_cols["hour"] = (df["TransactionDT"] / 3600 % 24).astype(int)
     new_cols["day"] = (df["TransactionDT"] / (3600 * 24) % 7).astype(int)
-    # unique card identifier (card1 and card2)
+    # unique card identifier
     card_id = df["card1"].astype(str) + "_" + df["card2"].astype(str)
     new_cols["card_id"] = card_id
     new_cols["card_id_str"] = card_id
-    # concat all new columns at once to avoid fragmentation
+    # save string versions before encoding — needed for graph edges
+    new_cols["device_str"] = df["DeviceInfo"].astype(str)
+    new_cols["email_str"] = df["P_emaildomain"].astype(str)
+    # concat all new columns at once
     df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
     df = df.copy()
     # transaction count per card
     df["card_tx_count"] = df.groupby("card_id")["TransactionID"].transform("count")
     # mean fraud rate per card
     df["card_fraud_rate"] = df.groupby("card_id")["isFraud"].transform("mean")
-
     print(f"  Features after engineering: {df.shape[1]}")
     return df
 
@@ -99,8 +101,8 @@ def engineer_features(df):
 def encode_categoricals(df):
     print("Encoding categorical features:")
     cat_cols = df.select_dtypes(include="object").columns.tolist()
-    # keep card_id_str as is
-    cat_cols = [c for c in cat_cols if c != "card_id_str"]
+    exclude = ["card_id_str", "device_str", "email_str"]
+    cat_cols = [c for c in cat_cols if c not in exclude]
     for col in cat_cols:
         df[col] = pd.factorize(df[col])[0]
     print(f"  Encoded {len(cat_cols)} categorical columns")

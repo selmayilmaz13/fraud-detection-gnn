@@ -34,7 +34,7 @@ HIDDEN_DIM_1 = 256
 HIDDEN_DIM_2 = 128
 DROPOUT = 0.3
 LEARNING_RATE = 0.001
-EPOCHS = 50
+EPOCHS = 150
 TRAIN_RATIO = 0.8
 
 # 1. Load graph from S3
@@ -85,34 +85,39 @@ def train_model(data, train_mask, test_mask):
     print("Training GNN:")
     x = data["transaction"].x
     y = data["transaction"].y
-    edge_index = data["transaction", "uses", "card"].edge_index
+   # normalize features
     scaler = StandardScaler()
     x = torch.tensor(
-        scaler.fit_transform(x.numpy()), 
+        scaler.fit_transform(x.numpy()),
         dtype=torch.float)
-    print("  Building transaction-transaction edges via shared card...")
-    src = edge_index[0]
-    dst = edge_index[1]
-    card_to_transactions = {}
-    for tx_idx, card_idx in zip(src.tolist(), dst.tolist()):
-        if card_idx not in card_to_transactions:
-            card_to_transactions[card_idx] = []
-        card_to_transactions[card_idx].append(tx_idx)
+    # build transaction-transaction edges via shared card, device, and email
+    print("  Building transaction-transaction edges...")
     MAX_NEIGHBORS = 20
-    EPOCHS = 100
     tx_src, tx_dst = [], []
-    for card_idx, tx_list in card_to_transactions.items():
-        if len(tx_list) > MAX_NEIGHBORS:
-            tx_list = tx_list[:MAX_NEIGHBORS]
-        for i in range(len(tx_list)):
-            for j in range(len(tx_list)):
-                if i != j:
-                    tx_src.append(tx_list[i])
-                    tx_dst.append(tx_list[j])
+
+    for edge_type in ["card", "device", "email"]:
+        edge_index = data["transaction", "uses", edge_type].edge_index
+        src = edge_index[0]
+        dst = edge_index[1]
+
+        entity_to_transactions = {}
+        for tx_idx, entity_idx in zip(src.tolist(), dst.tolist()):
+            if entity_idx not in entity_to_transactions:
+                entity_to_transactions[entity_idx] = []
+            entity_to_transactions[entity_idx].append(tx_idx)
+
+        for entity_idx, tx_list in entity_to_transactions.items():
+            if len(tx_list) > MAX_NEIGHBORS:
+                tx_list = tx_list[:MAX_NEIGHBORS]
+            for i in range(len(tx_list)):
+                for j in range(len(tx_list)):
+                    if i != j:
+                        tx_src.append(tx_list[i])
+                        tx_dst.append(tx_list[j])
 
     tx_edge_index = torch.tensor([tx_src, tx_dst], dtype=torch.long)
     print(f"  Transaction-transaction edges: {tx_edge_index.shape[1]}")
-
+    
     n_neg = (y == 0).sum().item()
     n_pos = (y == 1).sum().item()
     class_weights = torch.tensor([1.0, n_neg / n_pos], dtype=torch.float)
@@ -121,6 +126,7 @@ def train_model(data, train_mask, test_mask):
         in_channels=x.shape[1],
         hidden1=HIDDEN_DIM_1,
         hidden2=HIDDEN_DIM_2)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = torch.nn.CrossEntropyLoss(weight=class_weights)
     for epoch in range(EPOCHS):
@@ -130,6 +136,7 @@ def train_model(data, train_mask, test_mask):
         loss = criterion(out[train_mask], y[train_mask])
         loss.backward()
         optimizer.step()
+
         if (epoch + 1) % 10 == 0:
             model.eval()
             with torch.no_grad():
@@ -140,6 +147,7 @@ def train_model(data, train_mask, test_mask):
                     y[test_mask].numpy(),
                     prob[test_mask].numpy())
             print(f"  Epoch {epoch+1}/{EPOCHS} | Loss: {loss:.4f} | Test AUC: {test_auc:.4f}")
+
     return model, x, y, tx_edge_index
 
 # 5. Evaluate model
