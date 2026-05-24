@@ -36,13 +36,18 @@ BUCKET_NAME = "fraud-detection-gnn"
 MODEL_KEY = "models/xgboost_baseline.pkl"
 TMP_MODEL_PATH = "/tmp/xgboost_baseline.pkl"
 
+HEADERS = {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS"}
+
 RISK_THRESHOLDS = {
     "Low": (0.0, 0.3),
     "Medium": (0.3, 0.6),
-    "High": (0.6, 1.0)
-}
+    "High": (0.6, 1.0)}
 
-# cached model (only loads once per Lambda container)
+# cached model — only loads once per Lambda container
 _model = None
 
 
@@ -82,13 +87,13 @@ def get_top_features(model, X, feature_cols, n=5):
 # 4. Preprocess input
 def preprocess_input(body, model):
     feature_cols = model.get_booster().feature_names
-    # build a row with zeros for all features
+    
     row = {col: 0.0 for col in feature_cols}
-    # fill in provided values
+    
     for key, val in body.items():
         if key in row:
             row[key] = val
-    # encode categorical inputs
+
     cat_mappings = {
         "ProductCD": {"W": 0, "C": 1, "R": 2, "H": 3, "S": 4},
         "card4": {"visa": 0, "mastercard": 1, "american express": 2, "discover": 3},
@@ -104,13 +109,20 @@ def preprocess_input(body, model):
 # 5. Main Lambda handler
 def handler(event, context):
     try:
+        # handle CORS preflight
+        if event.get("httpMethod") == "OPTIONS":
+            return {
+                "statusCode": 200,
+                "headers": HEADERS,
+                "body": ""}
+
         body = json.loads(event.get("body", "{}"))
 
         if not body:
             return {
                 "statusCode": 400,
-                "body": json.dumps({"error": "request body is required"})
-            }
+                "headers": HEADERS,
+                "body": json.dumps({"error": "request body is required"})}
 
         model = load_model()
         X, feature_cols = preprocess_input(body, model)
@@ -122,17 +134,15 @@ def handler(event, context):
         response = {
             "fraud_probability": round(fraud_prob, 4),
             "risk_level": risk_level,
-            "top_features": top_features
-        }
+            "top_features": top_features}
 
         return {
             "statusCode": 200,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps(response)
-        }
+            "headers": HEADERS,
+            "body": json.dumps(response)}
 
     except Exception as e:
         return {
             "statusCode": 500,
-            "body": json.dumps({"error": str(e)})
-        }
+            "headers": HEADERS,
+            "body": json.dumps({"error": str(e)})}
