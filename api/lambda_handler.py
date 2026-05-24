@@ -28,9 +28,8 @@ Response:
 
 import json
 import boto3
-import joblib
 import numpy as np
-import pandas as pd
+from xgboost import XGBClassifier
 
 BUCKET_NAME = "fraud-detection-gnn"
 MODEL_KEY = "models/xgboost_baseline.pkl"
@@ -57,8 +56,9 @@ def load_model():
     if _model is None:
         print("Loading model from S3...")
         s3 = boto3.client("s3")
-        s3.download_file(BUCKET_NAME, MODEL_KEY, TMP_MODEL_PATH)
-        _model = joblib.load(TMP_MODEL_PATH)
+        s3.download_file(BUCKET_NAME, "models/xgboost_baseline.json", "/tmp/xgboost_baseline.json")
+        _model = XGBClassifier()
+        _model.load_model("/tmp/xgboost_baseline.json")
         print("Model loaded successfully")
     return _model
 
@@ -72,38 +72,42 @@ def get_risk_level(prob):
 
 
 # 3. Get top contributing features
-def get_top_features(model, X, feature_cols, n=5):
+def get_top_features(model, X, feature_names, n=5):
     importance = model.get_booster().get_score(importance_type="gain")
     top = sorted(importance, key=importance.get, reverse=True)[:n]
     result = []
     for feat in top:
-        if feat in feature_cols:
+        if feat in feature_names:
+            idx = feature_names.index(feat)
             result.append({
                 "feature": feat,
-                "value": round(float(X[feat].iloc[0]), 4)})
+                "value": round(float(X[0][idx]), 4)})
     return result
 
 
 # 4. Preprocess input
 def preprocess_input(body, model):
-    feature_cols = model.get_booster().feature_names
-    
-    row = {col: 0.0 for col in feature_cols}
-    
-    for key, val in body.items():
-        if key in row:
-            row[key] = val
-
+    feature_names = model.get_booster().feature_names
+    row = {col: 0.0 for col in feature_names}
     cat_mappings = {
         "ProductCD": {"W": 0, "C": 1, "R": 2, "H": 3, "S": 4},
         "card4": {"visa": 0, "mastercard": 1, "american express": 2, "discover": 3},
         "card6": {"debit": 0, "credit": 1, "debit or credit": 2, "charge card": 3},}
+
+    for key, val in body.items():
+        if key in row and key not in cat_mappings:
+            try:
+                row[key] = float(val)
+            except (ValueError, TypeError):
+                pass
+
     for col, mapping in cat_mappings.items():
         if col in body and col in row:
-            row[col] = mapping.get(body[col], 0)
+            row[col] = float(mapping.get(body[col], 0))
 
-    X = pd.DataFrame([row])
-    return X, feature_cols
+    import numpy as np
+    X = np.array([[row[col] for col in feature_names]], dtype=np.float32)
+    return X, feature_names
 
 
 # 5. Main Lambda handler

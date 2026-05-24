@@ -1,4 +1,3 @@
-.DS_Store
 data/raw/
 data/processed/
 *.pkl
@@ -8,3 +7,7 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 node_modules/
+lambda_package/
+xgboost_layer/
+fraud_detection_lambda.zip
+xgboost_layer.zip
