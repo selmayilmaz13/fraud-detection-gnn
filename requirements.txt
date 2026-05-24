@@ -1,0 +1,11 @@
+cat > requirements.txt << 'EOF'
+torch
+torch-geometric
+xgboost
+scikit-learn
+pandas
+numpy
+boto3
+joblib
+matplotlib
+EOF
