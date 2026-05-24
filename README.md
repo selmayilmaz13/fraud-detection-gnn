@@ -3,6 +3,7 @@
 A full end-to-end machine learning system for real-time fraud detection, built on 590,000 e-commerce transactions. Compares XGBoost against three GNN architectures, deploys the best model as a REST API on AWS Lambda, and serves predictions through a live web dashboard.
 
 **Live Demo:** http://fraud-detection-frontend-selma.s3-website-us-east-1.amazonaws.com
+
 **API Endpoint:** https://oeyo6z6c9d.execute-api.us-east-1.amazonaws.com/prod/predict
 
 ---
@@ -12,9 +13,9 @@ A full end-to-end machine learning system for real-time fraud detection, built o
 | Model | AUC-ROC | Recall | Precision |
 |---|---|---|---|
 | XGBoost (baseline) | 0.937 | 0.787 | 0.249 |
-| GNN — Card edges only | 0.901 | 0.739 | 0.203 |
-| GNN — Multi-edge (card + device + email) | 0.897 | 0.747 | 0.195 |
-| GNN — HeteroConv | 0.900 | 0.707 | 0.216 |
+| GNN: Card edges only | 0.901 | 0.739 | 0.203 |
+| GNN: Multi-edge (card + device + email) | 0.897 | 0.747 | 0.195 |
+| GNN: HeteroConv | 0.900 | 0.707 | 0.216 |
 
 XGBoost outperforms all GNN variants. The gap is partly explained by the engineered `card_fraud_rate` feature, which manually captures much of the graph signal the GNNs learn automatically.
 
@@ -36,10 +37,10 @@ Graph Construction           ← graph/build_graph.py
 │  Heterogeneous edges
 ▼
 Model Training
-├── XGBoost baseline     ← models/train_baseline.py
-├── GNN card-only        ← models/train_gnn_cardonly.py
-├── GNN multi-edge       ← models/train_gnn_multiedge.py
-└── GNN HeteroConv       ← models/train_gnn_heteroconv.py
+├── XGBoost baseline         ← models/train_baseline.py
+├── GNN card-only            ← models/train_gnn_cardonly.py
+├── GNN multi-edge           ← models/train_gnn_multiedge.py
+└── GNN HeteroConv           ← models/train_gnn_heteroconv.py
 │
 ▼
 Explainability               ← models/explain.py
@@ -57,7 +58,7 @@ Deployed on S3 static hosting
 
 ## Dataset
 
-[IEEE-CIS Fraud Detection](https://www.kaggle.com/c/ieee-fraud-detection) — provided by Vesta Corporation and the IEEE Computational Intelligence Society.
+[IEEE-CIS Fraud Detection](https://www.kaggle.com/c/ieee-fraud-detection) - provided by Vesta Corporation and the IEEE Computational Intelligence Society.
 
 - 590,540 transactions, 394 features
 - 3.5% fraud rate
@@ -106,7 +107,7 @@ Built a heterogeneous graph with:
 ## Key Findings
 
 - `card_fraud_rate` is the most frequently used feature (1,000+ trees in XGBoost)
-- V257, V258, V294 have the highest information gain — Vesta's anonymized behavioral signals are the strongest predictors
+- V257, V258, V294 have the highest information gain: Vesta's anonymized behavioral signals are the strongest predictors
 - Adding device and email edges to the GNN did not significantly improve results over card-only edges: card-level patterns dominate fraud behavior in this dataset
 - HeteroConv improved from AUC 0.892 to 0.900 after adding dropout, weight decay, and lower learning rate
 
