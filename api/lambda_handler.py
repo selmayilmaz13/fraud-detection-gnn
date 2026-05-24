@@ -1,0 +1,138 @@
+"""
+AWS Lambda handler for the fraud detection API.
+Accepts a POST request with transaction features and returns
+a fraud risk score with top contributing features.
+
+Expected request body:
+{
+    "TransactionAmt": 150.0,
+    "ProductCD": "W",
+    "card4": "visa",
+    "card6": "debit",
+    "P_emaildomain": "gmail.com",
+    "DeviceType": "desktop",
+    "card_fraud_rate": 0.02,
+    "card_tx_count": 5
+}
+
+Response:
+{
+    "fraud_probability": 0.23,
+    "risk_level": "Low",
+    "top_features": [
+        {"feature": "card_fraud_rate", "value": 0.02},
+        {"feature": "TransactionAmt", "value": 150.0}
+    ]
+}
+"""
+
+import json
+import boto3
+import joblib
+import numpy as np
+import pandas as pd
+
+BUCKET_NAME = "fraud-detection-gnn"
+MODEL_KEY = "models/xgboost_baseline.pkl"
+TMP_MODEL_PATH = "/tmp/xgboost_baseline.pkl"
+
+RISK_THRESHOLDS = {
+    "Low": (0.0, 0.3),
+    "Medium": (0.3, 0.6),
+    "High": (0.6, 1.0)
+}
+
+# cached model (only loads once per Lambda container)
+_model = None
+
+
+# 1. Load model from S3
+def load_model():
+    global _model
+    if _model is None:
+        print("Loading model from S3...")
+        s3 = boto3.client("s3")
+        s3.download_file(BUCKET_NAME, MODEL_KEY, TMP_MODEL_PATH)
+        _model = joblib.load(TMP_MODEL_PATH)
+        print("Model loaded successfully")
+    return _model
+
+
+# 2. Get risk level from probability
+def get_risk_level(prob):
+    for level, (low, high) in RISK_THRESHOLDS.items():
+        if low <= prob <= high:
+            return level
+    return "High"
+
+
+# 3. Get top contributing features
+def get_top_features(model, X, feature_cols, n=5):
+    importance = model.get_booster().get_score(importance_type="gain")
+    top = sorted(importance, key=importance.get, reverse=True)[:n]
+    result = []
+    for feat in top:
+        if feat in feature_cols:
+            result.append({
+                "feature": feat,
+                "value": round(float(X[feat].iloc[0]), 4)})
+    return result
+
+
+# 4. Preprocess input
+def preprocess_input(body, model):
+    feature_cols = model.get_booster().feature_names
+    # build a row with zeros for all features
+    row = {col: 0.0 for col in feature_cols}
+    # fill in provided values
+    for key, val in body.items():
+        if key in row:
+            row[key] = val
+    # encode categorical inputs
+    cat_mappings = {
+        "ProductCD": {"W": 0, "C": 1, "R": 2, "H": 3, "S": 4},
+        "card4": {"visa": 0, "mastercard": 1, "american express": 2, "discover": 3},
+        "card6": {"debit": 0, "credit": 1, "debit or credit": 2, "charge card": 3},}
+    for col, mapping in cat_mappings.items():
+        if col in body and col in row:
+            row[col] = mapping.get(body[col], 0)
+
+    X = pd.DataFrame([row])
+    return X, feature_cols
+
+
+# 5. Main Lambda handler
+def handler(event, context):
+    try:
+        body = json.loads(event.get("body", "{}"))
+
+        if not body:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "request body is required"})
+            }
+
+        model = load_model()
+        X, feature_cols = preprocess_input(body, model)
+
+        fraud_prob = float(model.predict_proba(X)[0][1])
+        risk_level = get_risk_level(fraud_prob)
+        top_features = get_top_features(model, X, feature_cols)
+
+        response = {
+            "fraud_probability": round(fraud_prob, 4),
+            "risk_level": risk_level,
+            "top_features": top_features
+        }
+
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps(response)
+        }
+
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": str(e)})
+        }
